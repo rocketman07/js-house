@@ -447,39 +447,63 @@ function toScreen(v) {
 }
 function dotSize(v) { return Math.max(0.04, camera.position.distanceTo(v) * 0.006); }
 
+// Snapping: cast the pick ray, then look for model corners (vertices) and edges within a few pixels of the
+// cursor on ANY visible mesh near the ray (BVH shapecast), keeping only points not hidden behind the hit surface.
+// In Plan view everything below the 4' cut can be picked; parts above the cut are clamped to the cut.
+const VPX = 14, EPX = 9;
+const _inv = new THREE.Matrix4(), _lray = new THREE.Ray(), _box = new THREE.Box3(), _a = new THREE.Vector3(),
+  _b = new THREE.Vector3(), _q = new THREE.Vector3(), _r = new THREE.Vector3();
 function pick(sx, sy, alt) {
-  const r = pickRaw(sx, sy, alt);
-  if (r && planOn) r.p.y = CUT_HEIGHT - 0.05;              // plan measurements are horizontal, on the cut plane
-  return r;
-}
-function pickRaw(sx, sy, alt) {
   const ndc = new THREE.Vector2(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera); ray.far = Infinity;
   ray.firstHitOnly = !planOn;
-  let hits = ray.intersectObjects(visibleMeshes(false), false);
+  const meshes = visibleMeshes(false);
+  let hits = ray.intersectObjects(meshes, false);
   ray.firstHitOnly = true;
   if (planOn) hits = hits.filter((h) => h.point.y <= CUT_HEIGHT + 1e-3);
   const h = hits[0];
   if (!h) return null;
-  if (alt || !h.face) return { p: h.point.clone(), kind: "face" };
-  // triangle corners in world space
-  const pos = h.object.geometry.attributes.position, mw = h.object.matrixWorld;
-  const v = [h.face.a, h.face.b, h.face.c].map((i) => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mw));
-  if (planOn) v.forEach((q) => { if (q.y > CUT_HEIGHT) q.y = CUT_HEIGHT; });
-  const hs = { x: sx, y: sy };
-  let best = null;
-  for (const q of v) {                              // vertex within 14 px
-    const s = toScreen(q), d = Math.hypot(s.x - hs.x, s.y - hs.y);
-    if (d < 14 && (!best || d < best.d)) best = { p: q.clone(), kind: "vertex", d };
+  if (alt) return { p: h.point.clone(), kind: "face" };
+  const R = ray.ray, hitDepth = h.distance;
+  const pxW = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / innerHeight;   // world size of 1px per unit depth
+  const reach = pxW * hitDepth * VPX * 1.2;
+  const visible = (q) => { const d = _r.copy(q).sub(R.origin).dot(R.direction); return d > 0 && d <= hitDepth + 0.08; };
+  const scr = (q) => { const s = toScreen(q); return Math.hypot(s.x - sx, s.y - sy); };
+  const clampCut = (q) => { if (planOn && q.y > CUT_HEIGHT) q.y = CUT_HEIGHT; return q; };
+  let bestV = null, bestE = null;
+  const tryVertex = (q) => {
+    if (!visible(q)) return;
+    const d = scr(q); if (d > VPX) return;
+    const depth = _r.copy(q).sub(R.origin).dot(R.direction);
+    if (!bestV || d < bestV.d - 1.5 || (Math.abs(d - bestV.d) <= 1.5 && depth < bestV.depth)) bestV = { p: q.clone(), kind: "vertex", d, depth };
+  };
+  const tryEdge = (a, b) => {
+    R.distanceSqToSegment(a, b, null, _q);
+    if (!visible(_q)) return;
+    const d = scr(_q); if (d > EPX) return;
+    if (!bestE || d < bestE.d) bestE = { p: _q.clone(), kind: "edge", d };
+  };
+  for (const m of meshes) {
+    const g = m.geometry;
+    if (!g.boundsTree) continue;
+    if (!g.boundingBox) g.computeBoundingBox();
+    _box.copy(g.boundingBox).applyMatrix4(m.matrixWorld).expandByScalar(reach);
+    if (!R.intersectsBox(_box)) continue;
+    _inv.copy(m.matrixWorld).invert(); _lray.copy(R).applyMatrix4(_inv);
+    const mw = m.matrixWorld;
+    g.boundsTree.shapecast({
+      intersectsBounds: (box) => _lray.intersectsBox(_box.copy(box).expandByScalar(reach)),
+      intersectsTriangle: (tri) => {
+        const v = [tri.a, tri.b, tri.c].map((q) => q.clone().applyMatrix4(mw));
+        if (planOn && v.every((q) => q.y > CUT_HEIGHT)) return false;          // clipped away
+        v.forEach(clampCut);
+        v.forEach(tryVertex);
+        if (!bestV) for (let k = 0; k < 3; k++) tryEdge(v[k], v[(k + 1) % 3]);
+        return false;
+      },
+    });
   }
-  if (best) return best;
-  for (let k = 0; k < 3; k++) {                    // edge within 10 px
-    const line = new THREE.Line3(v[k], v[(k + 1) % 3]);
-    const q = new THREE.Vector3(); line.closestPointToPoint(h.point, true, q);
-    const s = toScreen(q), d = Math.hypot(s.x - hs.x, s.y - hs.y);
-    if (d < 10 && (!best || d < best.d)) best = { p: q, kind: "edge", d };
-  }
-  return best || { p: h.point.clone(), kind: "face" };
+  return bestV || bestE || { p: h.point.clone(), kind: "face" };
 }
 function axisLock(a, b) {
   const d = b.clone().sub(a), ax = Math.abs(d.x), ay = Math.abs(d.y), az = Math.abs(d.z);
@@ -490,6 +514,11 @@ function axisLock(a, b) {
 function makeLabel() { const el = document.createElement("div"); el.className = "mlabel"; document.body.appendChild(el); return el; }
 function labelText(a, b) {
   const d = a.distanceTo(b), dh = Math.hypot(b.x - a.x, b.z - a.z), dv = Math.abs(b.y - a.y);
+  if (planOn) {                                    // looking down: lead with the plan (horizontal) distance
+    let t = ftin(dh);
+    if (dv > 0.01) t += "<small>V " + ftin(dv) + " · 3D " + ftin(d) + "</small>";
+    return t;
+  }
   let t = ftin(d);
   if (dh > 0.01 && dv > 0.01) t += "<small>H " + ftin(dh) + " · V " + ftin(dv) + "</small>";
   return t;

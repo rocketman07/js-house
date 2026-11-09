@@ -30,8 +30,8 @@ It has to be served from a web address.
 - Plan: cuts the model 4'-0" above the interior finish floor and looks straight down. Click again to turn it off.
   You can still orbit, and the Front / Rear views show the cut model in 3D.
 - Measure: click Measure, then click two points. It snaps to corners (green) and edges (orange); hold Alt to
-  turn snapping off, Shift to lock to an axis, Esc to cancel. Works in Orbit, Plan (horizontal distances on the
-  cut) and Walk (aim with the crosshair). Labels show feet-inches to 1/16" with horizontal and vertical parts.
+  turn snapping off, Shift to lock to an axis, Esc to cancel. Works in Orbit, Plan (snaps to anything below the cut; the label leads with the plan distance, from the
+  cut down) and Walk (aim with the crosshair). Labels show feet-inches to 1/16" with horizontal and vertical parts.
 - Layers panel: every Rhino layer under 3D Model and Site Model, with checkboxes. Presets: Everything,
   Framing, Interior (no roof), House only.
 - Phones and tablets get orbit and layers; walk mode needs a keyboard and mouse.
