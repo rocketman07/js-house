@@ -51,6 +51,13 @@
   #bar i { display: block; height: 100%; width: 0; background: var(--accent); }
   #walkhint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px 18px; text-align: center; display: none; }
   #toggleLayers { display: none; }
+  .mlabel { position: fixed; transform: translate(-50%, -50%); background: #111827e6; color: #fff; font-size: 12px;
+    padding: 2px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none; z-index: 5; }
+  .mlabel small { color: #cbd5e1; margin-left: 4px; }
+  #snapTip { position: fixed; pointer-events: none; font-size: 11px; padding: 1px 6px; border-radius: 4px; color: #fff;
+    background: #111827cc; display: none; z-index: 6; }
+  #measureBar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 10px; display: none;
+    align-items: center; gap: 8px; font-size: 13px; }
   @media (max-width: 700px) {
     #layers { top: auto; height: 45vh; }
     #layers.hidden { display: none; }
@@ -69,6 +76,7 @@
   <button id="orbitBtn" class="on" title="Rotate, pan and zoom around the model">Orbit</button>
   <button id="walkBtn" title="Walk through with W A S D">Walk (WASD)</button>
   <button id="planBtn" title="Floor plan: cut the model 4'-0&quot; above the finish floor">Plan</button>
+  <button id="measureBtn" title="Measure between two points (snaps to corners and edges)">Measure</button>
   <span class="sep"></span>
   <button data-preset="all">Everything</button>
   <button data-preset="framing">Framing</button>
@@ -90,9 +98,13 @@
 
 <div id="help" class="panel">
   <div><b>Orbit:</b> drag to rotate, right-drag to pan, scroll to zoom. Double-click a surface to centre on it.</div>
+  <div style="margin-top:6px"><b>Measure:</b> click two points. Snaps to corners (green) and edges (orange); hold <b>Alt</b> to turn snapping off, <b>Shift</b> to lock to the nearest axis.</div>
   <div style="margin-top:6px"><b>Walk:</b> click Walk, then click the view. <b>W A S D</b> to move, mouse to look, <b>Shift</b> to run, <b>Esc</b> to stop. Doors are open to walk through.</div>
 </div>
 
+<div id="snapTip"></div>
+<div id="measureBar" class="panel"><span id="measureMsg">Click the first point</span>
+  <button id="measureClear">Clear all</button><button id="measureDone">Done</button></div>
 <div id="walkhint" class="panel">Click to start walking<br><small>W A S D to move, mouse to look, Esc to exit</small></div>
 
 <div id="loading"><div>Loading model…<div id="bar"><i></i></div></div></div>
@@ -277,7 +289,7 @@ function visibleMeshes(excludeDoors) {
   return out;
 }
 renderer.domElement.addEventListener("dblclick", (e) => {
-  if (mode !== "orbit") return;
+  if (mode !== "orbit" || measuring) return;
   const p = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(p, camera);
   const hit = ray.intersectObjects(visibleMeshes(false), false)[0];
@@ -375,13 +387,162 @@ function stepWalk(dt) {
   }
 }
 
-window.viewer = { camera, setMode, setPlan, preset, setView, walk, keys, stepWalk, layerNodes };   // for scripting / testing
+// ---------------------------------------------------------------- measure tool (snaps to vertices and edges)
+let measuring = false, mStart = null, hover = null;
+const measures = [];                    // {a, b, line, dots, label}
+const mGroup = new THREE.Group(); scene.add(mGroup);
+const mMat = new THREE.LineBasicMaterial({ color: 0xff3b30, depthTest: false });
+const dotGeo = new THREE.SphereGeometry(1, 12, 8);
+const SNAP_COL = { vertex: 0x16a34a, edge: 0xf59e0b, face: 0x2563eb };
+const marker = new THREE.Mesh(dotGeo, new THREE.MeshBasicMaterial({ color: 0x2563eb, depthTest: false }));
+marker.renderOrder = 10; marker.visible = false; scene.add(marker);
+const rubber = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+  new THREE.LineDashedMaterial({ color: 0xff3b30, dashSize: 0.4, gapSize: 0.25, depthTest: false }));
+rubber.renderOrder = 10; rubber.visible = false; scene.add(rubber);
+const snapTip = document.getElementById("snapTip"), mBar = document.getElementById("measureBar"), mMsg = document.getElementById("measureMsg");
+let liveLabel = null;
+
+function ftin(ft) {
+  const s = Math.round(ft * 192) / 16;           // to 1/16 in
+  let f = Math.floor(s / 12), i = s - f * 12;
+  if (i >= 12 - 1e-9) { f += 1; i = 0; }
+  const whole = Math.floor(i + 1e-9), frac = Math.round((i - whole) * 16);
+  let fr = "";
+  if (frac) { let n = frac, d = 16; while (n % 2 === 0) { n /= 2; d /= 2; } fr = " " + n + "/" + d; }
+  return f + "'-" + whole + fr + '"';
+}
+function toScreen(v) {
+  const p = v.clone().project(camera);
+  return { x: (p.x + 1) / 2 * innerWidth, y: (1 - p.y) / 2 * innerHeight, front: p.z < 1 };
+}
+function dotSize(v) { return Math.max(0.04, camera.position.distanceTo(v) * 0.006); }
+
+function pick(sx, sy, alt) {
+  const r = pickRaw(sx, sy, alt);
+  if (r && planOn) r.p.y = CUT_HEIGHT - 0.05;              // plan measurements are horizontal, on the cut plane
+  return r;
+}
+function pickRaw(sx, sy, alt) {
+  const ndc = new THREE.Vector2(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera); ray.far = Infinity;
+  ray.firstHitOnly = !planOn;
+  let hits = ray.intersectObjects(visibleMeshes(false), false);
+  ray.firstHitOnly = true;
+  if (planOn) hits = hits.filter((h) => h.point.y <= CUT_HEIGHT + 1e-3);
+  const h = hits[0];
+  if (!h) return null;
+  if (alt || !h.face) return { p: h.point.clone(), kind: "face" };
+  // triangle corners in world space
+  const pos = h.object.geometry.attributes.position, mw = h.object.matrixWorld;
+  const v = [h.face.a, h.face.b, h.face.c].map((i) => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mw));
+  if (planOn) v.forEach((q) => { if (q.y > CUT_HEIGHT) q.y = CUT_HEIGHT; });
+  const hs = { x: sx, y: sy };
+  let best = null;
+  for (const q of v) {                              // vertex within 14 px
+    const s = toScreen(q), d = Math.hypot(s.x - hs.x, s.y - hs.y);
+    if (d < 14 && (!best || d < best.d)) best = { p: q.clone(), kind: "vertex", d };
+  }
+  if (best) return best;
+  for (let k = 0; k < 3; k++) {                    // edge within 10 px
+    const line = new THREE.Line3(v[k], v[(k + 1) % 3]);
+    const q = new THREE.Vector3(); line.closestPointToPoint(h.point, true, q);
+    const s = toScreen(q), d = Math.hypot(s.x - hs.x, s.y - hs.y);
+    if (d < 10 && (!best || d < best.d)) best = { p: q, kind: "edge", d };
+  }
+  return best || { p: h.point.clone(), kind: "face" };
+}
+function axisLock(a, b) {
+  const d = b.clone().sub(a), ax = Math.abs(d.x), ay = Math.abs(d.y), az = Math.abs(d.z);
+  const out = a.clone();
+  if (ax >= ay && ax >= az) out.x = b.x; else if (ay >= az) out.y = b.y; else out.z = b.z;
+  return out;
+}
+function makeLabel() { const el = document.createElement("div"); el.className = "mlabel"; document.body.appendChild(el); return el; }
+function labelText(a, b) {
+  const d = a.distanceTo(b), dh = Math.hypot(b.x - a.x, b.z - a.z), dv = Math.abs(b.y - a.y);
+  let t = ftin(d);
+  if (dh > 0.01 && dv > 0.01) t += "<small>H " + ftin(dh) + " · V " + ftin(dv) + "</small>";
+  return t;
+}
+function addDot(v, col) { const m = new THREE.Mesh(dotGeo, new THREE.MeshBasicMaterial({ color: col, depthTest: false })); m.position.copy(v); m.renderOrder = 10; mGroup.add(m); return m; }
+function finish(a, b) {
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), mMat); line.renderOrder = 10; mGroup.add(line);
+  const dots = [addDot(a, 0xff3b30), addDot(b, 0xff3b30)];
+  const label = makeLabel(); label.innerHTML = labelText(a, b);
+  measures.push({ a, b, line, dots, label });
+}
+function cancelCurrent() { mStart = null; rubber.visible = false; if (liveLabel) { liveLabel.remove(); liveLabel = null; } mMsg.textContent = "Click the first point"; }
+function setMeasure(on) {
+  measuring = on;
+  document.getElementById("measureBtn").classList.toggle("on", on);
+  mBar.style.display = on ? "flex" : "none";
+  if (!on) { cancelCurrent(); marker.visible = false; snapTip.style.display = "none"; }
+}
+function clearMeasures() {
+  for (const m of measures) { mGroup.remove(m.line, ...m.dots); m.label.remove(); }
+  measures.length = 0; cancelCurrent();
+}
+document.getElementById("measureBtn").onclick = () => setMeasure(!measuring);
+document.getElementById("measureDone").onclick = () => setMeasure(false);
+document.getElementById("measureClear").onclick = clearMeasures;
+
+function screenPoint(e) {                          // walk mode measures at the crosshair
+  return walk.isLocked ? { x: innerWidth / 2, y: innerHeight / 2 } : { x: e.clientX, y: e.clientY };
+}
+function updateHover(e) {
+  if (!measuring) return;
+  const s = screenPoint(e);
+  hover = pick(s.x, s.y, e.altKey);
+  if (hover && mStart && e.shiftKey) hover.p = axisLock(mStart, hover.p);
+  if (!hover) { marker.visible = false; snapTip.style.display = "none"; return; }
+  marker.visible = true; marker.position.copy(hover.p); marker.scale.setScalar(dotSize(hover.p));
+  marker.material.color.setHex(SNAP_COL[hover.kind]);
+  snapTip.style.display = walk.isLocked ? "none" : "block";
+  snapTip.textContent = hover.kind === "face" ? "surface" : hover.kind;
+  snapTip.style.background = "#" + new THREE.Color(SNAP_COL[hover.kind]).getHexString();
+  snapTip.style.left = (s.x + 14) + "px"; snapTip.style.top = (s.y + 12) + "px";
+  if (mStart) {
+    rubber.geometry.setFromPoints([mStart, hover.p]); rubber.computeLineDistances(); rubber.visible = true;
+    if (!liveLabel) liveLabel = makeLabel();
+    liveLabel.innerHTML = labelText(mStart, hover.p);
+  }
+}
+let downAt = null;
+renderer.domElement.addEventListener("pointermove", updateHover);
+addEventListener("mousemove", (e) => { if (walk.isLocked) updateHover(e); });
+renderer.domElement.addEventListener("pointerdown", (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+renderer.domElement.addEventListener("pointerup", (e) => {
+  if (!measuring || e.button !== 0 || !downAt) return;
+  if (!walk.isLocked && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 4) return;   // that was a drag
+  if (mode === "walk" && !walk.isLocked) return;                                                // first click locks the mouse
+  updateHover(e);
+  if (!hover) return;
+  if (!mStart) { mStart = hover.p.clone(); mMsg.textContent = "Click the second point (Esc to cancel)"; }
+  else { finish(mStart, hover.p.clone()); cancelCurrent(); mMsg.textContent = "Measured. Click to start another"; }
+});
+addEventListener("keydown", (e) => { if (e.code === "Escape" && measuring && mStart) cancelCurrent(); });
+function placeLabels() {
+  const put = (el, a, b) => {
+    const s = toScreen(a.clone().add(b).multiplyScalar(0.5));
+    el.style.display = s.front ? "block" : "none"; el.style.left = s.x + "px"; el.style.top = s.y + "px";
+  };
+  for (const m of measures) { put(m.label, m.a, m.b); m.dots.forEach((d) => d.scale.setScalar(dotSize(d.position))); }
+  if (liveLabel && mStart && hover) put(liveLabel, mStart, hover.p);
+  if (walk.isLocked && measuring) {                // keep the crosshair snap live while walking
+    hover = pick(innerWidth / 2, innerHeight / 2, false);
+    if (hover) { marker.visible = true; marker.position.copy(hover.p); marker.scale.setScalar(dotSize(hover.p)); marker.material.color.setHex(SNAP_COL[hover.kind]); }
+    if (hover && mStart) { rubber.geometry.setFromPoints([mStart, hover.p]); rubber.computeLineDistances(); rubber.visible = true; if (!liveLabel) liveLabel = makeLabel(); liveLabel.innerHTML = labelText(mStart, hover.p); }
+  }
+}
+
+window.viewer = { camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mode === "orbit") orbit.update(); else stepWalk(dt);
+  placeLabels();
   renderer.render(scene, camera);
 });
 addEventListener("resize", () => {
