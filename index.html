@@ -148,7 +148,8 @@ scene.background = new THREE.Color(0xcfe3f2);
 scene.fog = new THREE.Fog(0xcfe3f2, 600, 1600);
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 4000);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f6a, 1.1));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x8a7f6a, 1.1);
+scene.add(hemi);
 const fill = new THREE.AmbientLight(0xffffff, 0.35);       // stronger indoors while walking
 scene.add(fill);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -159,6 +160,36 @@ sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -140, right: 140, top: 140, bottom: -140, near: 10, far: 700 });
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
+
+// Interior lighting: when the camera is under a roof, a warm "room light" follows it at ceiling height
+// and the flat fill drops, so walls, corners and furniture shade instead of reading as one flat tone.
+const LIGHT = { // outdoor / indoor targets, tuned by eye
+  out: { hemi: 1.1, fill: 0.35, lamp: 0, sun: 1.6 },
+  in:  { hemi: 0.75, fill: 0.6, lamp: 34, sun: 1.6 },
+};
+const lamp = new THREE.PointLight(0xfff1dc, 0, 45, 1.2);
+scene.add(lamp);
+let indoor = 0, indoorTarget = 0, lightTick = 0;
+const upRay = new THREE.Raycaster(); upRay.firstHitOnly = true;
+function updateLighting(dt) {
+  if (planOn) { indoorTarget = 0; }
+  else if (++lightTick % 8 === 0) {                 // is there a ceiling or roof over the camera?
+    // roofs and ceilings face up, so look down from 14' above the eye as well as up from it
+    const ms = visibleMeshes(true), c = camera.position;
+    upRay.set(c, new THREE.Vector3(0, 1, 0)); upRay.far = 14;
+    let hit = upRay.intersectObjects(ms, false).length > 0;
+    if (!hit) {
+      upRay.set(new THREE.Vector3(c.x, c.y + 14, c.z), new THREE.Vector3(0, -1, 0)); upRay.far = 13.5;
+      hit = upRay.intersectObjects(ms, false).length > 0;
+    }
+    indoorTarget = hit ? 1 : 0;
+  }
+  indoor += (indoorTarget - indoor) * Math.min(1, dt * 4);
+  const k = indoor, L = (n) => LIGHT.out[n] + (LIGHT.in[n] - LIGHT.out[n]) * k;
+  hemi.intensity = L("hemi"); fill.intensity = L("fill"); sun.intensity = L("sun");
+  lamp.intensity = L("lamp");
+  lamp.position.set(camera.position.x, camera.position.y + 1.6, camera.position.z);
+}
 
 // ---------------------------------------------------------------- plan cut: 4'-0" above the interior finish floor
 const FINISH_FLOOR = 2.458;                     // ft above grade at the house (Rhino model)
@@ -307,7 +338,6 @@ function setMode(m) {
   document.getElementById("orbitBtn").classList.toggle("on", m === "orbit");
   document.getElementById("walkBtn").classList.toggle("on", m === "walk");
   orbit.enabled = m === "orbit";
-  fill.intensity = m === "walk" ? 1.0 : 0.35;
   if (m === "walk") {
     camera.position.set(34, 2.2 + EYE, 4);          // on the front deck
     camera.lookAt(34, 2.2 + EYE, -10);
@@ -535,7 +565,7 @@ function placeLabels() {
   }
 }
 
-window.viewer = { camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
+window.viewer = { LIGHT, lamp, get indoor() { return indoor; }, camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
@@ -543,6 +573,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mode === "orbit") orbit.update(); else stepWalk(dt);
   placeLabels();
+  updateLighting(dt);
   renderer.render(scene, camera);
 });
 addEventListener("resize", () => {

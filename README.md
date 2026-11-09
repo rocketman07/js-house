@@ -25,6 +25,8 @@ It has to be served from a web address.
 - Orbit: drag to rotate, right-drag to pan, scroll to zoom, double-click a surface to centre on it.
 - Walk: click Walk, then click the view. W A S D to move, mouse to look, Shift to run, Esc to stop.
   Walls and floors are solid; door slabs and glass are not, so you can walk through doorways.
+  Indoors the lighting switches automatically to a warm room light that follows you, so walls,
+  corners and cabinets read clearly; it fades back to daylight when you step outside.
 - Plan: cuts the model 4'-0" above the interior finish floor and looks straight down. Click again to turn it off.
   You can still orbit, and the Front / Rear views show the cut model in 3D.
 - Measure: click Measure, then click two points. It snaps to corners (green) and edges (orange); hold Alt to
