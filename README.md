@@ -25,6 +25,8 @@ It has to be served from a web address.
 - Orbit: drag to rotate, right-drag to pan, scroll to zoom, double-click a surface to centre on it.
 - Walk: click Walk, then click the view. W A S D to move, mouse to look, Shift to run, Esc to stop.
   Walls and floors are solid; door slabs and glass are not, so you can walk through doorways.
+- Plan: cuts the model 4'-0" above the interior finish floor and looks straight down. Click again to turn it off.
+  You can still orbit, and the Front / Rear views show the cut model in 3D.
 - Layers panel: every Rhino layer under 3D Model and Site Model, with checkboxes. Presets: Everything,
   Framing, Interior (no roof), House only.
 - Phones and tablets get orbit and layers; walk mode needs a keyboard and mouse.

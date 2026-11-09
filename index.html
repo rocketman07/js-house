@@ -68,6 +68,7 @@
   <h1>J+S House</h1>
   <button id="orbitBtn" class="on" title="Rotate, pan and zoom around the model">Orbit</button>
   <button id="walkBtn" title="Walk through with W A S D">Walk (WASD)</button>
+  <button id="planBtn" title="Floor plan: cut the model 4'-0&quot; above the finish floor">Plan</button>
   <span class="sep"></span>
   <button data-preset="all">Everything</button>
   <button data-preset="framing">Framing</button>
@@ -147,6 +148,12 @@ Object.assign(sun.shadow.camera, { left: -140, right: 140, top: 140, bottom: -14
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
 
+// ---------------------------------------------------------------- plan cut: 4'-0" above the interior finish floor
+const FINISH_FLOOR = 2.458;                     // ft above grade at the house (Rhino model)
+const CUT_HEIGHT = FINISH_FLOOR + 4.0;
+const cutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_HEIGHT);   // keeps everything below the cut
+let planOn = false;
+
 const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.enableDamping = true;
 orbit.maxPolarAngle = Math.PI * 0.495;
@@ -158,10 +165,13 @@ const VIEWS = {
   rear: [new THREE.Vector3(110, 45, -120), CENTER],
   top: [new THREE.Vector3(34.01, 220, -14), new THREE.Vector3(34, 0, -14)],
 };
-function setView(name) {
-  const [p, t] = VIEWS[name];
+function jumpTo(p, t) {
+  // drop any leftover orbit momentum so the camera lands exactly where asked
+  orbit.enableDamping = false;
   camera.position.copy(p); orbit.target.copy(t); orbit.update();
+  orbit.enableDamping = true;
 }
+function setView(name) { const [p, t] = VIEWS[name]; jumpTo(p, t); }
 
 // ---------------------------------------------------------------- load
 const layerNodes = new Map();     // full path -> mesh
@@ -296,8 +306,22 @@ function setMode(m) {
     setView("front");
   }
 }
+function setPlan(on) {
+  planOn = on;
+  renderer.clippingPlanes = on ? [cutPlane] : [];
+  sun.castShadow = !on;                          // the clipped roof would still shade the plan
+  scene.fog = on ? null : new THREE.Fog(0xcfe3f2, 600, 1600);
+  document.getElementById("planBtn").classList.toggle("on", on);
+  if (on) {
+    if (mode !== "orbit") setMode("orbit");
+    jumpTo(new THREE.Vector3(34, 95, -13.99), new THREE.Vector3(34, 0, -14));   // straight down, front at the bottom
+  } else {
+    setView("front");
+  }
+}
+document.getElementById("planBtn").onclick = () => setPlan(!planOn);
 document.getElementById("orbitBtn").onclick = () => setMode("orbit");
-document.getElementById("walkBtn").onclick = () => setMode("walk");
+document.getElementById("walkBtn").onclick = () => { if (planOn) setPlan(false); setMode("walk"); };
 renderer.domElement.addEventListener("click", () => { if (mode === "walk" && !walk.isLocked) walk.lock(); });
 hint.addEventListener("click", () => walk.lock());
 const layersPanel = document.getElementById("layers"), helpPanel = document.getElementById("help");
@@ -351,7 +375,7 @@ function stepWalk(dt) {
   }
 }
 
-window.viewer = { camera, setMode, preset, setView, walk, keys, stepWalk, layerNodes };   // for scripting / testing
+window.viewer = { camera, setMode, setPlan, preset, setView, walk, keys, stepWalk, layerNodes };   // for scripting / testing
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
