@@ -33,3 +33,11 @@ It has to be served from a web address.
 
 Re-run `export_glb.py` in Rhino (ScriptEditor) with `OUT_GLB` set to this folder's `js-house.glb`,
 then re-upload `js-house.glb`. The page doesn't change.
+
+## Publishing with GitHub (set up)
+
+The folder is a git repository connected to https://github.com/rocketman07/js-house, published with
+GitHub Pages at https://rocketman07.github.io/js-house/ (and house.carterwiens.com once DNS is set).
+
+To update the live site: run `export_glb.py` in Rhino, then run `./publish.sh` in this folder
+(or ask Claude to "export and publish the model"). The site updates about a minute later.
