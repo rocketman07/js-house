@@ -65,17 +65,17 @@ for L in doc.Layers:
     rough = "Trees" in L.FullPath or "Pool" in L.FullPath or "Anchor" in L.FullPath or "Piers" in L.FullPath
     for o in objs:
         col = colour_of(o, L)
-        ms = []
         if isinstance(o, Rhino.DocObjects.InstanceObject):
             xf = o.InstanceXform
             for so in o.InstanceDefinition.GetObjects():
+                scol = colour_of(so, L) if so.Attributes.ColorSource == Rhino.DocObjects.ObjectColorSource.ColorFromObject else col
                 for m in meshes_of(so.Geometry, rough):
                     m.Transform(xf)
-                    ms.append(m)
+                    data.setdefault(L.FullPath, defaultdict(list))[scol].append(m)
         else:
             ms = meshes_of(o.Geometry, rough)
-        if ms:
-            data.setdefault(L.FullPath, defaultdict(list))[col] += ms
+            if ms:
+                data.setdefault(L.FullPath, defaultdict(list))[col] += ms
 
 # ---------------------------------------------------------------- build buffers
 bin_parts = []
