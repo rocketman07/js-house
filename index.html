@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J+S House 3D</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffffee; --text: #1f2937; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2563eb; --accent-text: #ffffff; --hover: #f3f4f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #111827; --panel: #1f2937ee; --text: #f3f4f6; --muted: #9ca3af; --line: #374151; --accent: #3b82f6; --hover: #374151; }
+  }
+  :root[data-theme="dark"] { --bg: #111827; --panel: #1f2937ee; --text: #f3f4f6; --muted: #9ca3af; --line: #374151; --accent: #3b82f6; --hover: #374151; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+  #view { position: fixed; inset: 0; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.12); backdrop-filter: blur(6px); }
+  #top { top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; }
+  #top h1 { font-size: 15px; margin: 0 8px 0 2px; white-space: nowrap; }
+  button { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 7px;
+    padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+  button:hover { background: var(--hover); }
+  button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+  #layers { top: 66px; left: 12px; width: 300px; max-width: calc(100vw - 24px); bottom: 12px; display: flex; flex-direction: column; }
+  #layers header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  #layers header strong { font-size: 13px; }
+  #tree { overflow: auto; padding: 6px 4px 10px; flex: 1; }
+  .row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; border-radius: 5px; }
+  .row:hover { background: var(--hover); }
+  .row label { display: flex; align-items: center; gap: 6px; cursor: pointer; flex: 1; min-width: 0; }
+  .row label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .twist { width: 18px; height: 18px; border: 0; padding: 0; color: var(--muted); font-size: 11px; flex: none; }
+  .twist.leaf { visibility: hidden; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; border: 1px solid #0002; }
+  .kids { margin-left: 14px; }
+  .kids.closed { display: none; }
+  #help { right: 12px; bottom: 12px; padding: 10px 12px; max-width: 290px; font-size: 12.5px; color: var(--muted); }
+  #help b { color: var(--text); }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; display: none; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+  #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
+  #crosshair::after { top: 6px; left: 0; height: 2px; width: 14px; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); z-index: 10; }
+  #loading div { text-align: center; color: var(--muted); }
+  #bar { width: 220px; height: 6px; border-radius: 3px; background: var(--line); margin: 10px auto 0; overflow: hidden; }
+  #bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+  #walkhint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px 18px; text-align: center; display: none; }
+  #toggleLayers { display: none; }
+  @media (max-width: 700px) {
+    #layers { top: auto; height: 45vh; }
+    #layers.hidden { display: none; }
+    #toggleLayers { display: inline-block; }
+    #help { display: none; }
+    #walkBtn { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="crosshair"></div>
+
+<div id="top" class="panel">
+  <h1>J+S House</h1>
+  <button id="orbitBtn" class="on" title="Rotate, pan and zoom around the model">Orbit</button>
+  <button id="walkBtn" title="Walk through with W A S D">Walk (WASD)</button>
+  <span class="sep"></span>
+  <button data-preset="all">Everything</button>
+  <button data-preset="framing">Framing</button>
+  <button data-preset="interior">Interior (no roof)</button>
+  <button data-preset="house">House only</button>
+  <span class="sep"></span>
+  <button data-view="front">Front</button>
+  <button data-view="rear">Rear</button>
+  <button data-view="top">Top</button>
+  <button id="toggleLayers">Layers</button>
+</div>
+
+<div id="layers" class="panel">
+  <header><strong>Layers</strong>
+    <span><button id="allOn" title="Show all layers">All on</button> <button id="allOff" title="Hide all layers">All off</button></span>
+  </header>
+  <div id="tree"></div>
+</div>
+
+<div id="help" class="panel">
+  <div><b>Orbit:</b> drag to rotate, right-drag to pan, scroll to zoom. Double-click a surface to centre on it.</div>
+  <div style="margin-top:6px"><b>Walk:</b> click Walk, then click the view. <b>W A S D</b> to move, mouse to look, <b>Shift</b> to run, <b>Esc</b> to stop. Doors are open to walk through.</div>
+</div>
+
+<div id="walkhint" class="panel">Click to start walking<br><small>W A S D to move, mouse to look, Esc to exit</small></div>
+
+<div id="loading"><div>Loading model…<div id="bar"><i></i></div></div></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.3/build/index.module.js"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
+
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+
+const MODEL_URL = "js-house.glb";
+const EYE = 5.5;               // eye height, ft
+const STEP = 1.6;              // max step-up, ft
+const RADIUS = 0.9;            // body radius for wall collision, ft
+const WALK = 5.0, RUN = 12.0;  // ft/s
+
+// ---------------------------------------------------------------- scene
+const host = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+host.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfe3f2);
+scene.fog = new THREE.Fog(0xcfe3f2, 600, 1600);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 4000);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f6a, 1.1));
+const fill = new THREE.AmbientLight(0xffffff, 0.35);       // stronger indoors while walking
+scene.add(fill);
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(-160, 260, 140);
+sun.target.position.set(34, 0, -16);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -140, right: 140, top: 140, bottom: -140, near: 10, far: 700 });
+sun.shadow.bias = -0.0004;
+scene.add(sun, sun.target);
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.maxPolarAngle = Math.PI * 0.495;
+const walk = new PointerLockControls(camera, renderer.domElement);
+
+const CENTER = new THREE.Vector3(34, 8, -14);
+const VIEWS = {
+  front: [new THREE.Vector3(-40, 55, 95), CENTER],
+  rear: [new THREE.Vector3(110, 45, -120), CENTER],
+  top: [new THREE.Vector3(34.01, 220, -14), new THREE.Vector3(34, 0, -14)],
+};
+function setView(name) {
+  const [p, t] = VIEWS[name];
+  camera.position.copy(p); orbit.target.copy(t); orbit.update();
+}
+
+// ---------------------------------------------------------------- load
+const layerNodes = new Map();     // full path -> mesh
+let collide = [];                 // meshes used for walking
+const bar = document.querySelector("#bar i");
+new GLTFLoader().load(MODEL_URL, (gltf) => {
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const path = o.userData.layer || o.parent?.userData?.layer || o.name;
+    o.castShadow = !/Glass|Canopy|Terrain/.test(path);
+    o.receiveShadow = true;
+    o.geometry.computeBoundsTree();
+    // thin finish layers sit a fraction of an inch off the sheathing: draw them on top to avoid flicker
+    if (/Metal Roofing|Metal Siding|Siding Panels|Siding Seams|Sheetrock|Ceilings|Trim|Ridge|Flashing/.test(path)) {
+      o.material = o.material.clone();
+      o.material.polygonOffset = true; o.material.polygonOffsetFactor = -2; o.material.polygonOffsetUnits = -4;
+    }
+    const key = o.parent?.userData?.layer ? o.parent : o;
+    layerNodes.set(path, key);
+  });
+  // glTF nodes with several primitives load as a Group of meshes; userData comes from node extras
+  gltf.scene.children.forEach((n) => { if (n.userData.layer) layerNodes.set(n.userData.layer, n); });
+  scene.add(gltf.scene);
+  buildTree();
+  preset("all");
+  setView("front");
+  document.getElementById("loading").remove();
+}, (e) => { if (e.total) bar.style.width = (100 * e.loaded / e.total) + "%"; },
+(err) => { document.querySelector("#loading div").textContent = "Could not load the model: " + err.message; });
+
+// ---------------------------------------------------------------- layer tree
+const treeEl = document.getElementById("tree");
+const checks = new Map();   // path (leaf or group) -> checkbox
+function buildTree() {
+  const root = {};
+  for (const path of layerNodes.keys()) {
+    let cur = root; const parts = path.split("::");
+    parts.forEach((p, i) => { cur[p] ??= { __path: parts.slice(0, i + 1).join("::"), __kids: {} }; if (i < parts.length - 1) cur = cur[p].__kids; });
+  }
+  const make = (obj, parentEl, depth) => {
+    for (const [name, node] of Object.entries(obj)) {
+      const kids = Object.keys(node.__kids).length > 0;
+      const wrap = document.createElement("div");
+      const row = document.createElement("div"); row.className = "row";
+      const tw = document.createElement("button"); tw.className = "twist" + (kids ? "" : " leaf"); tw.textContent = depth < 1 ? "▾" : "▸";
+      const lab = document.createElement("label");
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.path = node.__path;
+      const sw = document.createElement("i"); sw.className = "swatch";
+      const mesh = layerNodes.get(node.__path);
+      if (mesh) { const m = mesh.isMesh ? mesh.material : mesh.children[0]?.material; if (m) sw.style.background = "#" + m.color.getHexString(); }
+      else sw.style.visibility = "hidden";
+      const tx = document.createElement("span"); tx.textContent = name; tx.title = node.__path;
+      lab.append(cb, sw, tx); row.append(tw, lab); wrap.append(row);
+      checks.set(node.__path, cb);
+      cb.addEventListener("change", () => setLayer(node.__path, cb.checked));
+      if (kids) {
+        const box = document.createElement("div"); box.className = "kids" + (depth < 1 ? "" : " closed");
+        make(node.__kids, box, depth + 1); wrap.append(box);
+        tw.addEventListener("click", () => { box.classList.toggle("closed"); tw.textContent = box.classList.contains("closed") ? "▸" : "▾"; });
+      }
+      parentEl.append(wrap);
+    }
+  };
+  make(root, treeEl, 0);
+}
+function setLayer(prefix, on) {
+  for (const [path, node] of layerNodes) if (path === prefix || path.startsWith(prefix + "::")) node.visible = on;
+  syncChecks();
+}
+function syncChecks() {
+  for (const [path, cb] of checks) {
+    const kids = [...layerNodes].filter(([p]) => p === path || p.startsWith(path + "::"));
+    const on = kids.filter(([, n]) => n.visible).length;
+    cb.checked = on === kids.length; cb.indeterminate = on > 0 && on < kids.length;
+  }
+}
+const HIDE = {
+  framing: ["Metal Siding", "Plywood Sheathing", "Sheetrock", "Ceilings", "Metal Roofing", "Roof Sheathing", "Gable Walls",
+            "Vented Soffit", "Roof Plywood", "T&G Soffit", "Subfloor", "Doors and Windows", "Decking", "Existing Grade", "Site Model::Water"],
+  interior: ["3D Model::Roof", "Ceilings", "Porch Roof", "Trees", "Existing Grade", "Site Model::Water"],
+  house: ["Site Model"],
+  all: ["Existing Grade", "Site Model::Water"],
+};
+function preset(name) {
+  for (const [path, node] of layerNodes) node.visible = !HIDE[name].some((h) => path.includes(h));
+  syncChecks();
+}
+document.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => preset(b.dataset.preset)));
+document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => { if (mode !== "orbit") setMode("orbit"); setView(b.dataset.view); }));
+document.getElementById("allOn").onclick = () => { for (const n of layerNodes.values()) n.visible = true; syncChecks(); };
+document.getElementById("allOff").onclick = () => { for (const n of layerNodes.values()) n.visible = false; syncChecks(); };
+document.getElementById("toggleLayers").onclick = () => document.getElementById("layers").classList.toggle("hidden");
+
+// ---------------------------------------------------------------- double-click to centre (orbit)
+const ray = new THREE.Raycaster(); ray.firstHitOnly = true;
+function visibleMeshes(excludeDoors) {
+  const out = [];
+  for (const [path, node] of layerNodes) {
+    if (!node.visible) continue;
+    if (excludeDoors && /Door Slabs|Garage Door|Glass|Canopy/.test(path)) continue;
+    node.traverse((o) => { if (o.isMesh) out.push(o); });
+  }
+  return out;
+}
+renderer.domElement.addEventListener("dblclick", (e) => {
+  if (mode !== "orbit") return;
+  const p = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(p, camera);
+  const hit = ray.intersectObjects(visibleMeshes(false), false)[0];
+  if (hit) { orbit.target.copy(hit.point); orbit.update(); }
+});
+
+// ---------------------------------------------------------------- walk mode
+let mode = "orbit";
+const keys = {};
+addEventListener("keydown", (e) => { keys[e.code] = true; });
+addEventListener("keyup", (e) => { keys[e.code] = false; });
+const hint = document.getElementById("walkhint"), cross = document.getElementById("crosshair");
+function setMode(m) {
+  mode = m;
+  document.getElementById("orbitBtn").classList.toggle("on", m === "orbit");
+  document.getElementById("walkBtn").classList.toggle("on", m === "walk");
+  orbit.enabled = m === "orbit";
+  fill.intensity = m === "walk" ? 1.0 : 0.35;
+  if (m === "walk") {
+    camera.position.set(34, 2.2 + EYE, 4);          // on the front deck
+    camera.lookAt(34, 2.2 + EYE, -10);
+    hint.style.display = "block";
+  } else {
+    if (walk.isLocked) walk.unlock();
+    hint.style.display = "none"; cross.style.display = "none";
+    setView("front");
+  }
+}
+document.getElementById("orbitBtn").onclick = () => setMode("orbit");
+document.getElementById("walkBtn").onclick = () => setMode("walk");
+renderer.domElement.addEventListener("click", () => { if (mode === "walk" && !walk.isLocked) walk.lock(); });
+hint.addEventListener("click", () => walk.lock());
+const layersPanel = document.getElementById("layers"), helpPanel = document.getElementById("help");
+walk.addEventListener("lock", () => {
+  hint.style.display = "none"; cross.style.display = "block";
+  layersPanel.style.display = "none"; helpPanel.style.display = "none";
+});
+walk.addEventListener("unlock", () => {
+  cross.style.display = "none"; layersPanel.style.display = ""; helpPanel.style.display = "";
+  if (mode === "walk") hint.style.display = "block";
+});
+
+const down = new THREE.Vector3(0, -1, 0);
+let vy = 0;
+function floorBelow(pos, meshes) {
+  ray.set(new THREE.Vector3(pos.x, pos.y - EYE + STEP, pos.z), down);
+  ray.far = 60;
+  const h = ray.intersectObjects(meshes, false)[0];
+  return h ? h.point.y : null;
+}
+function blocked(from, dir, dist, meshes) {
+  for (const hgt of [STEP + 0.2, 3.0, EYE - 0.3]) {
+    ray.set(new THREE.Vector3(from.x, from.y - EYE + hgt, from.z), dir);
+    ray.far = dist + RADIUS;
+    if (ray.intersectObjects(meshes, false).length) return true;
+  }
+  return false;
+}
+function stepWalk(dt) {
+  if (!walk.isLocked) return;
+  const speed = (keys.ShiftLeft || keys.ShiftRight) ? RUN : WALK;
+  const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+  const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize();
+  const move = new THREE.Vector3();
+  if (keys.KeyW) move.add(fwd); if (keys.KeyS) move.sub(fwd);
+  if (keys.KeyD) move.add(right); if (keys.KeyA) move.sub(right);
+  const meshes = visibleMeshes(true);
+  if (move.lengthSq() > 0) {
+    move.normalize().multiplyScalar(speed * dt);
+    // slide along walls: try full move, then each axis
+    for (const m of [move, new THREE.Vector3(move.x, 0, 0), new THREE.Vector3(0, 0, move.z)]) {
+      const len = m.length(); if (len < 1e-6) continue;
+      if (!blocked(camera.position, m.clone().normalize(), len, meshes)) { camera.position.add(m); break; }
+    }
+  }
+  const f = floorBelow(camera.position, meshes);
+  if (f !== null) {
+    const target = f + EYE;
+    if (target > camera.position.y) { camera.position.y = target; vy = 0; }           // step up
+    else { vy -= 32 * dt; camera.position.y = Math.max(target, camera.position.y + vy * dt); if (camera.position.y === target) vy = 0; }
+  }
+}
+
+window.viewer = { camera, setMode, preset, setView, walk, keys, stepWalk, layerNodes };   // for scripting / testing
+
+// ---------------------------------------------------------------- loop
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (mode === "orbit") orbit.update(); else stepWalk(dt);
+  renderer.render(scene, camera);
+});
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
