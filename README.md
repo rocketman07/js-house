@@ -48,3 +48,16 @@ GitHub Pages at https://rocketman07.github.io/js-house/ (and house.carterwiens.c
 
 To update the live site: run `export_glb.py` in Rhino, then run `./publish.sh` in this folder
 (or ask Claude to "export and publish the model"). The site updates about a minute later.
+
+## Change requests
+
+Clients click **+ Request change** to send a snapshot of the current view (they can draw on it) with a
+description. **Changes ▾** at the top right lists every request with its status and your response, and
+**Go to this view** restores the camera, plan cut and layers the client was looking at.
+
+Requests are stored by a standalone Google Apps Script web app (`apps-script/ChangeRequests.gs`, project
+"J+S House Change Requests" at script.google.com) in the **Change Requests** tab of the project sheet;
+snapshots go to the Drive folder "J+S House - Change Request Snapshots", and each new request is emailed to
+you. Set **Status** (Open / In progress / Done / Won't do) and **Response** in the sheet; the website shows both.
+The web app URL is `CHANGES_URL` in index.html. If you edit the script, use Deploy > Manage deployments >
+Edit > New version so the URL stays the same.

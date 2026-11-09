@@ -5,7 +5,7 @@
 set -e
 cd "$(dirname "$0")"
 MSG=${1:-"Update model export $(date '+%Y-%m-%d %H:%M')"}
-git add js-house.glb index.html README.md export_glb.py publish.sh
+git add js-house.glb index.html README.md export_glb.py publish.sh apps-script
 if git diff --cached --quiet; then
   echo "Nothing changed since the last publish."
   exit 0

@@ -26,7 +26,7 @@
   button:hover { background: var(--hover); }
   button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
-  #layers { top: 66px; left: 12px; width: 300px; max-width: calc(100vw - 24px); bottom: 12px; display: flex; flex-direction: column; }
+  #layers { top: var(--below-top, 66px); left: 12px; width: 300px; max-width: calc(100vw - 24px); bottom: 12px; display: flex; flex-direction: column; }
   #layers header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--line); }
   #layers header strong { font-size: 13px; }
   #tree { overflow: auto; padding: 6px 4px 10px; flex: 1; }
@@ -58,6 +58,52 @@
     background: #111827cc; display: none; z-index: 6; }
   #measureBar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 10px; display: none;
     align-items: center; gap: 8px; font-size: 13px; }
+  /* change requests */
+  .grow { flex: 1; }
+  #chCount { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; font-size: 11px;
+    line-height: 18px; text-align: center; background: #dc2626; color: #fff; }
+  #chCount:empty { display: none; }
+  #changes { right: 12px; top: var(--below-top, 66px); width: 400px; max-width: calc(100vw - 24px); max-height: calc(100vh - 90px);
+    display: none; flex-direction: column; z-index: 7; }
+  #changes.open { display: flex; }
+  #changes header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  #changes header strong { flex: 1; font-size: 13px; }
+  .tabs { display: flex; gap: 4px; padding: 8px 10px 0; }
+  .tabs button { padding: 3px 9px; font-size: 12.5px; }
+  #chList { overflow: auto; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 10px; }
+  .ch-card { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
+  .ch-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .ch-head .muted { color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: 11px; padding: 1px 8px; border-radius: 9px; color: #fff; background: #6b7280; white-space: nowrap; }
+  .pill.s-open { background: #dc2626; } .pill.s-progress { background: #d97706; } .pill.s-done { background: #16a34a; }
+  .ch-text { margin: 6px 0; white-space: pre-wrap; word-wrap: break-word; }
+  .ch-img { display: block; width: 100%; border-radius: 6px; border: 1px solid var(--line); cursor: zoom-in; background: var(--line); min-height: 40px; }
+  .ch-resp { margin-top: 6px; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--panel); font-size: 13px; white-space: pre-wrap; }
+  .ch-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+  .ch-actions a { color: var(--accent); font-size: 12.5px; margin-left: auto; }
+  .empty { color: var(--muted); text-align: center; padding: 18px 6px; }
+  .modal { position: fixed; inset: 0; background: #0008; display: none; place-items: center; z-index: 20; padding: 12px; }
+  .modal.open { display: grid; }
+  .modal-box { position: relative; width: min(760px, 100%); max-height: calc(100vh - 24px); overflow: auto; padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+  .modal-box header { display: flex; align-items: center; justify-content: space-between; }
+  .modal-box header strong { font-size: 15px; }
+  .snapwrap { position: relative; line-height: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+  .snapwrap canvas { width: 100%; height: auto; display: block; }
+  #snapDraw { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+  .tools { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
+  .tools .grow { min-width: 120px; }
+  .pen { width: 20px; height: 20px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
+  .pen.on { border-color: var(--text); background-clip: content-box; }
+  .modal-box input, .modal-box textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 9px; width: 100%; }
+  .modal-box textarea { resize: vertical; min-height: 90px; }
+  .hp { position: absolute !important; left: -9999px; width: 1px !important; height: 1px; opacity: 0; }
+  .actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+  #reqMsg { flex: 1; font-size: 13px; color: var(--muted); }
+  #reqMsg.err { color: #dc2626; }
+  #lightbox { cursor: zoom-out; }
+  #lightbox img { max-width: 100%; max-height: calc(100vh - 24px); border-radius: 8px; }
   @media (max-width: 700px) {
     #layers { top: auto; height: 45vh; }
     #layers.hidden { display: none; }
@@ -87,7 +133,33 @@
   <button data-view="rear">Rear</button>
   <button data-view="top">Top</button>
   <button id="toggleLayers">Layers</button>
+  <span class="grow"></span>
+  <button id="requestBtn" title="Take a snapshot of this view and describe a change">+ Request change</button>
+  <button id="changesBtn" title="All change requests">Changes <span id="chCount"></span> ▾</button>
 </div>
+
+<div id="changes" class="panel">
+  <header><strong>Change requests</strong><button id="chRefresh" title="Reload the list">↻</button><button id="chClose" title="Close">✕</button></header>
+  <div class="tabs"><button data-f="open" class="on">Open</button><button data-f="done">Done</button><button data-f="all">All</button></div>
+  <div id="chList"></div>
+</div>
+
+<div id="reqModal" class="modal">
+  <div class="panel modal-box">
+    <header><strong>Request a change</strong><button id="reqClose" title="Close">✕</button></header>
+    <div class="snapwrap"><canvas id="snapImg"></canvas><canvas id="snapDraw"></canvas></div>
+    <div class="tools"><span class="grow">Draw on the snapshot to mark what should change.</span>
+      <button class="pen on" data-c="#ef4444" style="background:#ef4444" title="Red"></button>
+      <button class="pen" data-c="#facc15" style="background:#facc15" title="Yellow"></button>
+      <button class="pen" data-c="#2563eb" style="background:#2563eb" title="Blue"></button>
+      <button id="penUndo">Undo</button><button id="penClear">Clear marks</button></div>
+    <input id="reqFrom" placeholder="Your name" maxlength="100" autocomplete="name">
+    <textarea id="reqText" placeholder="Describe the change (what, where, and why)" maxlength="5000"></textarea>
+    <input id="reqWebsite" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <div class="actions"><span id="reqMsg"></span><button id="reqCancel">Cancel</button><button id="reqSend" class="on">Send request</button></div>
+  </div>
+</div>
+<div id="lightbox" class="modal"><img alt="Change request snapshot"></div>
 
 <div id="layers" class="panel">
   <header><strong>Layers</strong>
@@ -99,6 +171,7 @@
 <div id="help" class="panel">
   <div><b>Orbit:</b> drag to rotate, right-drag to pan, scroll to zoom. Double-click a surface to centre on it.</div>
   <div style="margin-top:6px"><b>Measure:</b> click two points. Snaps to corners (green) and edges (orange); hold <b>Alt</b> to turn snapping off, <b>Shift</b> to lock to the nearest axis.</div>
+  <div style="margin-top:6px"><b>Changes:</b> set up a view, click <b>+ Request change</b>, mark the snapshot and describe it. <b>Changes ▾</b> lists every request and its status.</div>
   <div style="margin-top:6px"><b>Walk:</b> click Walk, then click the view. <b>W A S D</b> to move, mouse to look, <b>Shift</b> to run, <b>Esc</b> to stop. Doors are open to walk through.</div>
 </div>
 
@@ -128,6 +201,8 @@ THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 const MODEL_URL = "js-house.glb";
+// Google Apps Script web app that stores change requests in the project Google Sheet (see apps-script/).
+const CHANGES_URL = "https://script.google.com/macros/s/AKfycbwYkb4tfLQ7Nx2c4hgQWMugqOTOQu7FuHIsCstqafocOriQYjsip9f1ocaEHCz4c_xV9w/exec";
 const EYE = 5.5;               // eye height, ft
 const STEP = 1.6;              // max step-up, ft
 const RADIUS = 0.9;            // body radius for wall collision, ft
@@ -594,7 +669,162 @@ function placeLabels() {
   }
 }
 
-window.viewer = { LIGHT, lamp, get indoor() { return indoor; }, camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
+// ---------------------------------------------------------------- change requests
+const $ = (id) => document.getElementById(id);
+const MOCK = new URLSearchParams(location.search).has("mockchanges");      // local testing without the backend
+let chItems = [], chFilter = "open";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function changesApi(body) {
+  if (MOCK) {
+    let list = []; try { list = JSON.parse(localStorage.getItem("mockChanges") || "[]"); } catch (e) {}
+    if (!body) return { ok: true, items: [...list].reverse() };
+    const id = list.length + 1;
+    list.push({ id, date: new Date().toISOString(), from: body.from, text: body.text, status: "Open", response: "",
+      link: "", view: JSON.stringify(body.view), image: body.image });
+    try { localStorage.setItem("mockChanges", JSON.stringify(list)); } catch (e) {}
+    return { ok: true, id };
+  }
+  if (!CHANGES_URL) throw new Error("Change requests are not connected yet.");
+  const r = await fetch(body ? CHANGES_URL : CHANGES_URL + "?t=" + Date.now(), body
+    ? { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "The request failed.");
+  return j;
+}
+const isDone = (s) => /^(done|won)/i.test(s);
+function renderChanges() {
+  const open = chItems.filter((c) => !isDone(c.status));
+  $("chCount").textContent = open.length || "";
+  const list = chFilter === "open" ? open : chFilter === "done" ? chItems.filter((c) => isDone(c.status)) : chItems;
+  const el = $("chList");
+  if (!list.length) { el.innerHTML = '<div class="empty">' + (chItems.length ? "Nothing here." : "No change requests yet. Use <b>+ Request change</b> to add one.") + "</div>"; return; }
+  el.innerHTML = list.map((c) => {
+    const cls = isDone(c.status) ? (/^done/i.test(c.status) ? "s-done" : "") : /progress/i.test(c.status) ? "s-progress" : "s-open";
+    const d = new Date(c.date), when = isNaN(d) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return '<div class="ch-card"><div class="ch-head"><b>#' + esc(c.id) + '</b><span class="muted">' + esc(when) + (c.from ? " · " + esc(c.from) : "") +
+      '</span><span class="pill ' + cls + '">' + esc(c.status) + '</span></div><div class="ch-text">' + esc(c.text) + "</div>" +
+      (c.image ? '<img class="ch-img" loading="lazy" alt="Snapshot for change ' + esc(c.id) + '" src="' + esc(c.image) + '">' : "") +
+      (c.response ? '<div class="ch-resp"><b>Response:</b> ' + esc(c.response) + "</div>" : "") +
+      '<div class="ch-actions">' + (c.view && c.view !== "{}" ? '<button data-go="' + esc(c.id) + '">Go to this view</button>' : "") +
+      (c.link ? '<a href="' + esc(c.link) + '" target="_blank" rel="noopener">Full-size snapshot</a>' : "") + "</div></div>";
+  }).join("");
+  el.querySelectorAll(".ch-img").forEach((img) => {
+    img.onerror = () => { const m = img.src.match(/id=([\w-]+)/); if (m && !img.dataset.alt) { img.dataset.alt = 1; img.src = "https://lh3.googleusercontent.com/d/" + m[1]; } };
+    img.onclick = () => { $("lightbox").querySelector("img").src = img.src; $("lightbox").classList.add("open"); };
+  });
+  el.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => {
+    const c = chItems.find((x) => String(x.id) === b.dataset.go);
+    try { goToView(JSON.parse(c.view)); } catch (e) {}
+    if (innerWidth < 700) $("changes").classList.remove("open");
+  });
+}
+async function loadChanges() {
+  try { chItems = (await changesApi()).items || []; renderChanges(); }
+  catch (e) { $("chList").innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
+}
+function toggleChanges(on) {
+  const p = $("changes"); on = on ?? !p.classList.contains("open");
+  p.classList.toggle("open", on); $("changesBtn").classList.toggle("on", on);
+  if (on) { $("chList").innerHTML = chItems.length ? $("chList").innerHTML : '<div class="empty">Loading…</div>'; loadChanges(); }
+}
+$("changesBtn").onclick = () => toggleChanges();
+$("chClose").onclick = () => toggleChanges(false);
+$("chRefresh").onclick = () => loadChanges();
+document.querySelectorAll("#changes .tabs button").forEach((b) => b.onclick = () => {
+  chFilter = b.dataset.f; document.querySelectorAll("#changes .tabs button").forEach((x) => x.classList.toggle("on", x === b)); renderChanges();
+});
+$("lightbox").onclick = () => $("lightbox").classList.remove("open");
+walk.addEventListener("lock", () => toggleChanges(false));
+
+// the camera, cut and layers, so a request can be reopened exactly as the client saw it
+function captureView() {
+  const target = mode === "orbit" ? orbit.target.clone()
+    : camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(6).add(camera.position);
+  const r = (v) => v.toArray().map((x) => Math.round(x * 1000) / 1000);
+  return { plan: planOn, mode, cam: r(camera.position), target: r(target),
+    hidden: [...layerNodes].filter(([, n]) => !n.visible).map(([p]) => p) };
+}
+function goToView(v) {
+  if (walk.isLocked) walk.unlock();
+  if (mode !== "orbit") setMode("orbit");
+  if (planOn !== !!v.plan) setPlan(!!v.plan);
+  if (Array.isArray(v.hidden)) { for (const [p, n] of layerNodes) n.visible = !v.hidden.includes(p); syncChecks(); }
+  if (v.cam && v.target) jumpTo(new THREE.Vector3(...v.cam), new THREE.Vector3(...v.target));
+}
+
+// snapshot of the 3D view (with any measurements) at up to 1600 px wide
+function takeSnapshot() {
+  marker.visible = false; snapTip.style.display = "none";
+  renderer.render(scene, camera);
+  const src = renderer.domElement, s = Math.min(1, 1600 / src.width);
+  const c = $("snapImg"); c.width = Math.round(src.width * s); c.height = Math.round(src.height * s);
+  const g = c.getContext("2d"); g.drawImage(src, 0, 0, c.width, c.height);
+  const k = c.width / innerWidth;
+  g.font = Math.round(12 * k) + "px -apple-system, Segoe UI, Arial, sans-serif"; g.textBaseline = "middle"; g.textAlign = "center";
+  for (const m of measures) {
+    const sp = toScreen(m.a.clone().add(m.b).multiplyScalar(0.5)); if (!sp.front) continue;
+    const txt = m.label.textContent, w = g.measureText(txt).width + 12 * k, h = 18 * k;
+    g.fillStyle = "#111827e6"; g.fillRect(sp.x * k - w / 2, sp.y * k - h / 2, w, h);
+    g.fillStyle = "#fff"; g.fillText(txt, sp.x * k, sp.y * k);
+  }
+  const d = $("snapDraw"); d.width = c.width; d.height = c.height;
+}
+let strokes = [], penColor = "#ef4444", drawing = null;
+function redrawMarks() {
+  const d = $("snapDraw"), g = d.getContext("2d");
+  g.clearRect(0, 0, d.width, d.height); g.lineCap = g.lineJoin = "round";
+  for (const s of strokes) {
+    g.strokeStyle = s.c; g.lineWidth = Math.max(3, d.width / 280); g.beginPath();
+    s.p.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    if (s.p.length === 1) g.lineTo(s.p[0][0] + 0.1, s.p[0][1]);
+    g.stroke();
+  }
+}
+const drawPt = (e) => { const d = $("snapDraw"), r = d.getBoundingClientRect(); return [(e.clientX - r.left) * d.width / r.width, (e.clientY - r.top) * d.height / r.height]; };
+$("snapDraw").addEventListener("pointerdown", (e) => { $("snapDraw").setPointerCapture(e.pointerId); drawing = { c: penColor, p: [drawPt(e)] }; strokes.push(drawing); redrawMarks(); });
+$("snapDraw").addEventListener("pointermove", (e) => { if (drawing) { drawing.p.push(drawPt(e)); redrawMarks(); } });
+addEventListener("pointerup", () => { drawing = null; });
+document.querySelectorAll(".pen").forEach((b) => b.onclick = () => { penColor = b.dataset.c; document.querySelectorAll(".pen").forEach((x) => x.classList.toggle("on", x === b)); });
+$("penUndo").onclick = () => { strokes.pop(); redrawMarks(); };
+$("penClear").onclick = () => { strokes = []; redrawMarks(); };
+
+let reqView = null;
+function openRequest() {
+  if (walk.isLocked) walk.unlock();
+  takeSnapshot(); strokes = []; redrawMarks(); reqView = captureView();
+  try { $("reqFrom").value = localStorage.getItem("changeFrom") || ""; } catch (e) {}
+  $("reqText").value = ""; $("reqMsg").textContent = ""; $("reqMsg").className = ""; $("reqSend").disabled = false;
+  $("reqModal").classList.add("open");
+  setTimeout(() => ($("reqFrom").value ? $("reqText") : $("reqFrom")).focus(), 50);
+}
+function closeRequest() { $("reqModal").classList.remove("open"); }
+$("requestBtn").onclick = openRequest;
+$("reqClose").onclick = $("reqCancel").onclick = closeRequest;
+$("reqModal").addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") closeRequest(); });
+$("reqModal").addEventListener("keyup", (e) => e.stopPropagation());
+$("reqModal").addEventListener("pointerdown", (e) => { if (e.target === $("reqModal")) closeRequest(); });
+$("reqSend").onclick = async () => {
+  const text = $("reqText").value.trim(), from = $("reqFrom").value.trim(), msg = $("reqMsg");
+  if (!text) { msg.textContent = "Please describe the change."; msg.className = "err"; $("reqText").focus(); return; }
+  try { localStorage.setItem("changeFrom", from); } catch (e) {}
+  const out = document.createElement("canvas"), img = $("snapImg");
+  out.width = img.width; out.height = img.height;
+  const g = out.getContext("2d"); g.drawImage(img, 0, 0); g.drawImage($("snapDraw"), 0, 0);
+  $("reqSend").disabled = true; msg.className = ""; msg.textContent = "Sending…";
+  try {
+    const r = await changesApi({ from, text, image: out.toDataURL("image/jpeg", 0.85), view: reqView, website: $("reqWebsite").value });
+    msg.textContent = "Sent. Thank you! This is request #" + r.id + ".";
+    setTimeout(() => { closeRequest(); toggleChanges(true); }, 1300);
+  } catch (e) {
+    msg.textContent = e.message; msg.className = "err"; $("reqSend").disabled = false;
+  }
+};
+loadChanges();
+// panels sit just under the top bar, which wraps to two rows on narrower windows
+function placePanels() { document.documentElement.style.setProperty("--below-top", ($("top").getBoundingClientRect().bottom + 8) + "px"); }
+placePanels(); addEventListener("resize", placePanels);
+
+window.viewer = { captureView, goToView, LIGHT, lamp, get indoor() { return indoor; }, camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
