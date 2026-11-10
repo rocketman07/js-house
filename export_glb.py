@@ -2,7 +2,7 @@
 """Export the 3D Model and Site Model layers of J+S-House.3dm to a GLB for the web viewer.
 
 One glTF node per Rhino layer (node name = full layer path), one primitive per colour on that layer.
-Block instances are expanded. Curves, text and dimensions are skipped. Rhino Z-up feet -> glTF Y-up
+Block instances are expanded. Curves on Wiring layers export as line primitives; other curves, text and dimensions are skipped. Rhino Z-up feet -> glTF Y-up
 (x, z, -y), units stay in feet. Layer visibility in Rhino is stored in node extras.visible.
 Set OUT_GLB before exec, or run as-is to write js-house.glb next to this script.
 """
@@ -25,6 +25,16 @@ mp_round.RefineGrid = False
 mp_round.JaggedSeams = False
 mp_round.MaximumEdgeLength = 0
 mp_round.GridAngle = math.radians(30)
+# pipes, ducts, cans: small round parts, so a coarse mesh (about 8 sides) is plenty
+mp_mep = Rhino.Geometry.MeshingParameters()
+mp_mep.GridMinCount = 4
+mp_mep.GridMaxCount = 8
+mp_mep.SimplePlanes = True
+mp_mep.RefineGrid = False
+mp_mep.JaggedSeams = True
+mp_mep.MaximumEdgeLength = 0
+mp_mep.GridAngle = math.radians(45)
+mp_mep.GridAspectRatio = 0
 
 
 def layer_ok(path):
@@ -33,6 +43,14 @@ def layer_ok(path):
 
 def meshes_of(geo, rough=False):
     out = []
+    if rough == "mep":
+        if isinstance(geo, G.Brep):
+            out += list(G.Mesh.CreateFromBrep(geo, mp_mep) or [])
+        elif isinstance(geo, G.Extrusion):
+            out += list(G.Mesh.CreateFromBrep(geo.ToBrep(), mp_mep) or [])
+        elif isinstance(geo, G.Mesh):
+            out.append(geo.DuplicateMesh())
+        return out
     if isinstance(geo, G.Mesh):
         out.append(geo.DuplicateMesh())
     elif isinstance(geo, G.Extrusion):
@@ -54,6 +72,7 @@ def colour_of(o, L):
 
 # layer -> colour -> list of meshes
 data = OrderedDict()
+lines = OrderedDict()           # layer -> colour -> list of polylines (Wiring layers only)
 vis = {}
 for L in doc.Layers:
     if L.IsDeleted or not layer_ok(L.FullPath):
@@ -63,6 +82,8 @@ for L in doc.Layers:
         continue
     vis[L.FullPath] = bool(L.IsVisible)
     rough = "Trees" in L.FullPath or "Pool" in L.FullPath or "Anchor" in L.FullPath or "Piers" in L.FullPath
+    if "::MEP" in L.FullPath:
+        rough = "mep"
     for o in objs:
         col = colour_of(o, L)
         if isinstance(o, Rhino.DocObjects.InstanceObject):
@@ -72,6 +93,11 @@ for L in doc.Layers:
                 for m in meshes_of(so.Geometry, rough):
                     m.Transform(xf)
                     data.setdefault(L.FullPath, defaultdict(list))[scol].append(m)
+        elif isinstance(o.Geometry, G.Curve) and "Wiring" in L.FullPath:
+            ok, pl = o.Geometry.TryGetPolyline()
+            if not ok:
+                pl = o.Geometry.ToPolyline(0.05, 0.1, 0.05, 1000).ToPolyline()
+            lines.setdefault(L.FullPath, defaultdict(list))[col].append(pl)
         else:
             ms = meshes_of(o.Geometry, rough)
             if ms:
@@ -150,6 +176,32 @@ for path, bycol in data.items():
         meshes.append({"name": path, "primitives": prims})
         nodes.append({"name": path, "mesh": len(meshes) - 1, "extras": {"layer": path, "visible": vis[path]}})
 
+n_seg = 0
+for path, bycol in lines.items():
+    prims = []
+    for col, pls in bycol.items():
+        pos, idx = [], []
+        for pl in pls:
+            base = len(pos) // 3
+            for p in pl:
+                pos += [p.X, p.Z, -p.Y]
+            for i in range(pl.Count - 1):
+                idx += [base + i, base + i + 1]
+        if not idx:
+            continue
+        n_seg += len(idx) // 2
+        xs, ys, zs = pos[0::3], pos[1::3], pos[2::3]
+        pv = add_view(struct.pack("<%df" % len(pos), *pos), 34962)
+        iv = add_view(struct.pack("<%dI" % len(idx), *idx), 34963)
+        accessors.append({"bufferView": pv, "componentType": 5126, "count": len(pos) // 3, "type": "VEC3",
+                          "min": [min(xs), min(ys), min(zs)], "max": [max(xs), max(ys), max(zs)]})
+        accessors.append({"bufferView": iv, "componentType": 5125, "count": len(idx), "type": "SCALAR"})
+        a0 = len(accessors) - 2
+        prims.append({"attributes": {"POSITION": a0}, "indices": a0 + 1, "mode": 1, "material": material(path, col)})
+    if prims:
+        meshes.append({"name": path, "primitives": prims})
+        nodes.append({"name": path, "mesh": len(meshes) - 1, "extras": {"layer": path, "visible": vis[path]}})
+
 gltf = {"asset": {"version": "2.0", "generator": "J+S House export_glb.py"},
         "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}],
         "nodes": nodes, "meshes": meshes, "materials": materials,
@@ -166,4 +218,4 @@ with open(OUT_GLB, "wb") as f:
     f.write(js)
     f.write(struct.pack("<II", len(binb), 0x004E4942))
     f.write(binb)
-print("layers %d, triangles %d, size %.1f MB" % (len(nodes), tri_total, total / 1e6))
+print("layers %d, triangles %d, wire segments %d, size %.1f MB" % (len(nodes), tri_total, n_seg, total / 1e6))

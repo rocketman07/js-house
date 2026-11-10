@@ -128,6 +128,7 @@
   <button data-preset="framing">Framing</button>
   <button data-preset="interior">Interior (no roof)</button>
   <button data-preset="house">House only</button>
+  <button data-preset="mep" title="Plumbing, HVAC, gas and electrical inside the framing">Systems (MEP)</button>
   <span class="sep"></span>
   <button data-view="front">Front</button>
   <button data-view="rear">Rear</button>
@@ -339,7 +340,7 @@ function buildTree() {
       const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.path = node.__path;
       const sw = document.createElement("i"); sw.className = "swatch";
       const mesh = layerNodes.get(node.__path);
-      if (mesh) { const m = mesh.isMesh ? mesh.material : mesh.children[0]?.material; if (m) sw.style.background = "#" + m.color.getHexString(); }
+      if (mesh) { const m = mesh.material || mesh.children[0]?.material; if (m) sw.style.background = "#" + m.color.getHexString(); }
       else sw.style.visibility = "hidden";
       const tx = document.createElement("span"); tx.textContent = name; tx.title = node.__path;
       lab.append(cb, sw, tx); row.append(tw, lab); wrap.append(row);
@@ -368,7 +369,11 @@ function syncChecks() {
 }
 const HIDE = {
   framing: ["Metal Siding", "Plywood Sheathing", "Sheetrock", "Ceilings", "Metal Roofing", "Roof Sheathing", "Gable Walls",
-            "Vented Soffit", "Roof Plywood", "T&G Soffit", "Subfloor", "Doors and Windows", "Decking", "Interiors", "Existing Grade", "Site Model::Water"],
+            "Vented Soffit", "Roof Plywood", "T&G Soffit", "Subfloor", "Doors and Windows", "Decking", "Interiors", "Existing Grade", "Site Model::Water",
+            "Floor Finishes", "3D Model::MEP"],
+  mep: ["Metal Siding", "Plywood Sheathing", "Sheetrock", "Ceilings", "Metal Roofing", "Roof Sheathing", "Gable Walls", "Vented Soffit",
+        "Roof Plywood", "T&G Soffit", "Subfloor", "Doors and Windows", "Decking", "Interiors", "Floor Finishes", "Existing Grade",
+        "Site Model::Water", "Trees", "Neighboring Structures", "3D Model::Roof", "Porch Roof", "Insulation"],
   interior: ["3D Model::Roof", "Ceilings", "Porch Roof", "Trees", "Existing Grade", "Site Model::Water"],
   house: ["Site Model"],
   all: ["Existing Grade", "Site Model::Water"],
