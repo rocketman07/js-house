@@ -303,7 +303,7 @@ new GLTFLoader().load(MODEL_URL, (gltf) => {
     o.receiveShadow = true;
     o.geometry.computeBoundsTree();
     // thin finish layers sit a fraction of an inch off the sheathing: draw them on top to avoid flicker
-    if (/Metal Roofing|Metal Siding|Siding Panels|Siding Seams|Sheetrock|Ceilings|Trim|Ridge|Flashing/.test(path)) {
+    if (/Metal Roofing|Metal Siding|Siding Panels|Siding Seams|Sheetrock|Ceilings|Trim|Ridge|Flashing|Floor Finishes/.test(path)) {
       o.material = o.material.clone();
       o.material.polygonOffset = true; o.material.polygonOffsetFactor = -2; o.material.polygonOffsetUnits = -4;
     }
