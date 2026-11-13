@@ -202,8 +202,26 @@ for path, bycol in lines.items():
         meshes.append({"name": path, "primitives": prims})
         nodes.append({"name": path, "mesh": len(meshes) - 1, "extras": {"layer": path, "visible": vis[path]}})
 
+# light fixtures -> scene extras.lights, so the viewer can light rooms from the real fixtures in walk mode.
+# Each entry: viewer coords (x, z, -y) of the fixture's lit face, kind, room.
+LIGHTS = []
+for o in doc.Objects:
+    nm = o.Attributes.Name or ""
+    lp = doc.Layers[o.Attributes.LayerIndex].FullPath or ""
+    if "Electrical::Lighting" not in lp: continue
+    if nm.startswith("6in LED recessed can"): kind = "can"
+    elif nm.startswith("3in LED accent can"): kind = "accent"
+    elif nm.startswith("LED light kit"): kind = "fan"
+    elif nm.startswith("4ft LED garage fixture"): kind = "garage"
+    elif nm.startswith("exterior wall lantern"): kind = "lantern"
+    else: continue
+    bb = o.Geometry.GetBoundingBox(True)
+    c = bb.Center
+    room = nm.split(" - ", 1)[1] if " - " in nm else ("Garage" if kind == "garage" else "")
+    LIGHTS.append({"p": [round(c.X, 3), round(bb.Min.Z, 3), round(-c.Y, 3)], "k": kind, "room": room})
+
 gltf = {"asset": {"version": "2.0", "generator": "J+S House export_glb.py"},
-        "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}],
+        "scene": 0, "scenes": [{"nodes": list(range(len(nodes))), "extras": {"lights": LIGHTS}}],
         "nodes": nodes, "meshes": meshes, "materials": materials,
         "accessors": accessors, "bufferViews": views, "buffers": [{"byteLength": offset}],
         "extras": {"units": "feet", "upAxis": "Y (Rhino Z)"}}
@@ -218,4 +236,4 @@ with open(OUT_GLB, "wb") as f:
     f.write(js)
     f.write(struct.pack("<II", len(binb), 0x004E4942))
     f.write(binb)
-print("layers %d, triangles %d, wire segments %d, size %.1f MB" % (len(nodes), tri_total, n_seg, total / 1e6))
+print("layers %d, triangles %d, wire segments %d, lights %d, size %.1f MB" % (len(nodes), tri_total, n_seg, len(LIGHTS), total / 1e6))

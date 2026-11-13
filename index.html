@@ -201,7 +201,7 @@ THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const MODEL_URL = "js-house.glb?v=20261110222919";
+const MODEL_URL = "js-house.glb?v=20261112182730";
 // Google Apps Script web app that stores change requests in the project Google Sheet (see apps-script/).
 const CHANGES_URL = "https://script.google.com/macros/s/AKfycbwYkb4tfLQ7Nx2c4hgQWMugqOTOQu7FuHIsCstqafocOriQYjsip9f1ocaEHCz4c_xV9w/exec";
 const EYE = 5.5;               // eye height, ft
@@ -237,14 +237,44 @@ Object.assign(sun.shadow.camera, { left: -140, right: 140, top: 140, bottom: -14
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
 
-// Interior lighting: when the camera is under a roof, a warm "room light" follows it at ceiling height
-// and the flat fill drops, so walls, corners and furniture shade instead of reading as one flat tone.
+// Interior lighting: when the camera is under a roof, the real ceiling fixtures switch on (see below),
+// the flat fill drops and a weak lamp follows the camera so corners never go black.
 const LIGHT = { // outdoor / indoor targets, tuned by eye
-  out: { hemi: 1.1, fill: 0.35, lamp: 0, sun: 1.6 },
-  in:  { hemi: 0.75, fill: 0.6, lamp: 34, sun: 1.6 },
+  out: { hemi: 1.1, fill: 0.35, lamp: 0, sun: 1.6, fixtures: 0 },
+  in:  { hemi: 0.6, fill: 0.15, lamp: 4, sun: 1.6, fixtures: 1 },
+  can: 50, accent: 18, fan: 30, garage: 40, lantern: 0,   // per-fixture intensity at full indoor
 };
-const lamp = new THREE.PointLight(0xfff1dc, 0, 45, 1.2);
+const lamp = new THREE.PointLight(0xfff1dc, 0, 30, 1.2);     // weak fill so corners never go black
 scene.add(lamp);
+
+// Fixture lights: the export lists every can, accent can, fan light kit and garage fixture (scene extras.lights).
+// WebGL can't afford 54 lights, so a fixed pool follows the camera and sits on the nearest fixtures.
+// The pool size never changes, so moving between rooms never recompiles shaders.
+const WARM = 0xffd6a0;                                         // ~3000K LED
+let FIXTURES = [];
+const SPOTS = [], POINTS = [];
+for (let i = 0; i < 10; i++) {                                 // cans and accents throw light down in a wide cone
+  const s = new THREE.SpotLight(WARM, 0, 22, Math.PI * 0.40, 0.8, 1.5);
+  s.visible = false; scene.add(s, s.target); SPOTS.push(s);
+}
+for (let i = 0; i < 3; i++) {                                  // fan light kits and garage fixtures light all around
+  const p = new THREE.PointLight(WARM, 0, 22, 1.6);
+  p.visible = false; scene.add(p); POINTS.push(p);
+}
+const glowMats = [], bounceMats = [];   // bounce: light off the floor and walls back onto the ceiling                                           // can trims / light kits glow while the lights are on
+function assignFixtures() {
+  const c = camera.position, d2 = (f) => (f.v.x - c.x) ** 2 + 2.5 * (f.v.y - c.y - 3) ** 2 + (f.v.z - c.z) ** 2;
+  const near = (kinds, n) => FIXTURES.filter((f) => kinds.includes(f.k)).sort((a, b) => d2(a) - d2(b)).slice(0, n);
+  near(["can", "accent"], SPOTS.length).forEach((f, i) => { SPOTS[i].userData.f = f; });
+  for (let i = near(["can", "accent"], SPOTS.length).length; i < SPOTS.length; i++) SPOTS[i].userData.f = null;
+  const pts = near(["fan", "garage"], POINTS.length);
+  POINTS.forEach((p, i) => { p.userData.f = pts[i] || null; });
+  for (const l of [...SPOTS, ...POINTS]) {
+    const f = l.userData.f; l.visible = !!f; if (!f) continue;
+    l.position.set(f.v.x, f.v.y - (f.k === "fan" ? 0.2 : 0.05), f.v.z);
+    if (l.isSpotLight) l.target.position.set(f.v.x, f.v.y - 8, f.v.z);
+  }
+}
 let indoor = 0, indoorTarget = 0, lightTick = 0;
 const upRay = new THREE.Raycaster(); upRay.firstHitOnly = true;
 function updateLighting(dt) {
@@ -265,7 +295,13 @@ function updateLighting(dt) {
   hemi.intensity = L("hemi"); fill.intensity = L("fill"); sun.intensity = L("sun");
   lamp.intensity = L("lamp");
   lamp.position.set(camera.position.x, camera.position.y + 1.6, camera.position.z);
+  const on = L("fixtures") * (fixturesOn ? 1 : 0);
+  if (lightTick % 8 === 0 && on > 0) assignFixtures();
+  for (const l of [...SPOTS, ...POINTS]) l.intensity = l.userData.f ? on * LIGHT[l.userData.f.k] : 0;
+  for (const m of glowMats) m.emissiveIntensity = on * 1.4;
+  for (const m of bounceMats) m.emissiveIntensity = on * 0.32;
 }
+let fixturesOn = true;
 
 // ---------------------------------------------------------------- plan cut: 4'-0" above the interior finish floor
 const FINISH_FLOOR = 2.458;                     // ft above grade at the house (Rhino model)
@@ -313,6 +349,19 @@ new GLTFLoader().load(MODEL_URL, (gltf) => {
   });
   // glTF nodes with several primitives load as a Group of meshes; userData comes from node extras
   gltf.scene.children.forEach((n) => { if (n.userData.layer) layerNodes.set(n.userData.layer, n); });
+  FIXTURES = (gltf.scene.userData.lights || []).map((f) => ({ ...f, v: new THREE.Vector3(...f.p) }));
+  // recessed cans glow warm when the fixture lights are on (housings sit above the drywall, out of sight)
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const path = o.userData.layer || o.parent?.userData?.layer || "";
+    if (/Recessed Cans$/.test(path)) {
+      o.material = o.material.clone(); o.material.emissive = new THREE.Color(WARM); o.material.emissiveIntensity = 0;
+      o.castShadow = false; glowMats.push(o.material);
+    }
+    if (/^3D Model::Ceilings::Sheetrock/.test(path)) {
+      o.material.emissive = new THREE.Color(0xfff0dc); o.material.emissiveIntensity = 0; bounceMats.push(o.material);
+    }
+  });
   scene.add(gltf.scene);
   buildTree();
   preset("all");
@@ -829,7 +878,7 @@ loadChanges();
 function placePanels() { document.documentElement.style.setProperty("--below-top", ($("top").getBoundingClientRect().bottom + 8) + "px"); }
 placePanels(); addEventListener("resize", placePanels);
 
-window.viewer = { captureView, goToView, LIGHT, lamp, get indoor() { return indoor; }, camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
+window.viewer = { captureView, goToView, LIGHT, lamp, SPOTS, POINTS, get FIXTURES() { return FIXTURES; }, set fixturesOn(v) { fixturesOn = v; }, get indoor() { return indoor; }, camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
