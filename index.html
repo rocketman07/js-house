@@ -201,7 +201,7 @@ THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const MODEL_URL = "js-house.glb?v=20261112184729";
+const MODEL_URL = "js-house.glb?v=20261112185308";
 // Google Apps Script web app that stores change requests in the project Google Sheet (see apps-script/).
 const CHANGES_URL = "https://script.google.com/macros/s/AKfycbwYkb4tfLQ7Nx2c4hgQWMugqOTOQu7FuHIsCstqafocOriQYjsip9f1ocaEHCz4c_xV9w/exec";
 const EYE = 5.5;               // eye height, ft
@@ -237,83 +237,40 @@ Object.assign(sun.shadow.camera, { left: -140, right: 140, top: 140, bottom: -14
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
 
-// Interior lighting: when the camera is under a roof, the real ceiling fixtures switch on (see below),
-// the flat fill drops and a weak lamp follows the camera so corners never go black.
+// Interior lighting: when the camera is under a roof the scene shifts to soft daylight (brighter sky fill, a gentle
+// lamp at the camera so corners never go black) and the ceiling fixtures switch on. The fixtures cost nothing to
+// draw: the can trims glow, and each fixture paints a soft pool of warm light on the floor below it, all fixtures
+// in a single draw call, so every light in view is always on and walking stays smooth.
 const LIGHT = { // outdoor / indoor targets, tuned by eye
   out: { hemi: 1.1, fill: 0.35, lamp: 0, sun: 1.6, fixtures: 0 },
-  in:  { hemi: 0.6, fill: 0.15, lamp: 4, sun: 1.6, fixtures: 1 },
-  can: 50, accent: 18, fan: 30, garage: 40, lantern: 0,   // per-fixture intensity at full indoor
+  in:  { hemi: 1.0, fill: 0.42, lamp: 10, sun: 1.6, fixtures: 1 },
 };
-const lamp = new THREE.PointLight(0xfff1dc, 0, 30, 1.2);     // weak fill so corners never go black
+const lamp = new THREE.PointLight(0xfff1dc, 0, 30, 1.2);
 scene.add(lamp);
 
-// Fixture lights: the export lists every can, accent can, fan light kit and garage fixture (scene extras.lights).
-// WebGL can't afford all 54, so a fixed pool of lights is handed to the fixtures the camera can see (in view and
-// not behind a wall), nearest first, then to unseen ones close enough to spill light into view. Lights fade between
-// fixtures instead of popping, and the pool never changes size, so moving around never recompiles shaders.
 const WARM = 0xffd6a0;                                         // ~3000K LED
-let FIXTURES = [];
-const SPOTS = [], POINTS = [];
-for (let i = 0; i < 30; i++) {                                 // cans and accents throw light down in a wide cone
-  const s = new THREE.SpotLight(WARM, 0, 22, Math.PI * 0.40, 0.8, 1.5);
-  s.userData = { f: null, next: null, level: 0 }; scene.add(s, s.target); SPOTS.push(s);
-}
-for (let i = 0; i < 5; i++) {                                  // fan light kits and garage fixtures light all around
-  const p = new THREE.PointLight(WARM, 0, 22, 1.6);
-  p.userData = { f: null, next: null, level: 0 }; scene.add(p); POINTS.push(p);
-}
+let FIXTURES = [];                                             // from the export (scene extras.lights)
 const glowMats = [];                                           // can trims glow while the lights are on
 const bounceMats = [];                                         // ceilings: light bouncing off floors and walls
-const frustum = new THREE.Frustum(), projView = new THREE.Matrix4(), lightSphere = new THREE.Sphere();
-const seeRay = new THREE.Raycaster(); seeRay.firstHitOnly = true;
-const seeTarget = new THREE.Vector3(), seeDir = new THREE.Vector3();
-function fixtureSeen(f, ms) {
-  // in view if the cone of light under it is (a sphere 4 ft below the fixture, 7 ft across)
-  lightSphere.center.set(f.v.x, f.v.y - 4, f.v.z); lightSphere.radius = 7;
-  if (!frustum.intersectsSphere(lightSphere)) return false;
-  // and not behind a wall: a clear line from the eye to the fixture, or to the floor under it
-  const c = camera.position;
-  for (const drop of [0.3, Math.max(1, f.v.y - FINISH_FLOOR - 0.5)]) {
-    seeTarget.set(f.v.x, f.v.y - drop, f.v.z); seeDir.subVectors(seeTarget, c);
-    const len = seeDir.length(); if (len < 0.5) return true;
-    seeRay.set(c, seeDir.divideScalar(len)); seeRay.far = len - 0.3;
-    if (!seeRay.intersectObjects(ms, false).length) return true;
-  }
-  return false;
-}
-function chooseFixtures() {
-  camera.updateMatrixWorld();
-  projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(projView);
-  const ms = visibleMeshes(true), c = camera.position;
-  const ranked = FIXTURES.map((f) => {
-    const d = c.distanceTo(f.v);
-    return { f, score: fixtureSeen(f, ms) ? d : d < 14 ? 100 + d : Infinity };   // seen, then spill from nearby
-  }).filter((r) => r.score < Infinity).sort((a, b) => a.score - b.score);
-  for (const [pool, kinds] of [[SPOTS, ["can", "accent"]], [POINTS, ["fan", "garage"]]]) {
-    const want = new Set(ranked.filter((r) => kinds.includes(r.f.k)).slice(0, pool.length).map((r) => r.f));
-    for (const l of pool) {                                    // a light already on a wanted fixture stays put
-      const u = l.userData;
-      if (u.f && want.has(u.f)) { u.next = u.f; want.delete(u.f); } else u.next = null;
-    }
-    const rest = [...want];
-    for (const l of pool) if (!l.userData.next && rest.length) l.userData.next = rest.shift();
-  }
-}
-function fadeFixtures(dt, on) {
-  for (const l of [...SPOTS, ...POINTS]) {
-    const u = l.userData;
-    if (u.f !== u.next) {                                      // fade out, then move to the new fixture
-      u.level = Math.max(0, u.level - dt * 6);
-      if (u.level === 0) {
-        u.f = u.next;
-        if (u.f) {
-          l.position.set(u.f.v.x, u.f.v.y - (u.f.k === "fan" ? 0.2 : 0.05), u.f.v.z);
-          if (l.isSpotLight) l.target.position.set(u.f.v.x, u.f.v.y - 8, u.f.v.z);
-        }
-      }
-    } else if (u.f) u.level = Math.min(1, u.level + dt * 3);
-    l.intensity = u.f ? on * u.level * LIGHT[u.f.k] : 0;
-  }
+let pools = null;                                              // floor light pools, one instanced mesh
+const POOL = { can: 7.5, fan: 13, garage: 11 };                // pool diameter on the floor, ft (accents light shelves)
+function buildPools() {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const g = cv.getContext("2d"), grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(0.35, "rgba(255,255,255,0.55)");
+  grd.addColorStop(0.7, "rgba(255,255,255,0.15)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  const list = FIXTURES.filter((f) => POOL[f.k]);
+  const mat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), color: WARM, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, fog: false });
+  pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), mat, list.length);
+  const m = new THREE.Matrix4();
+  list.forEach((f, i) => {
+    const floor = f.room === "Garage" ? 0.36 : FINISH_FLOOR + 0.02, d = POOL[f.k];
+    pools.setMatrixAt(i, m.makeScale(d, 1, d).setPosition(f.v.x, floor, f.v.z));
+  });
+  pools.renderOrder = 2; pools.visible = false; pools.frustumCulled = false;
+  scene.add(pools);
 }
 let indoor = 0, indoorTarget = 0, lightTick = 0;
 const upRay = new THREE.Raycaster(); upRay.firstHitOnly = true;
@@ -336,10 +293,9 @@ function updateLighting(dt) {
   lamp.intensity = L("lamp");
   lamp.position.set(camera.position.x, camera.position.y + 1.6, camera.position.z);
   const on = L("fixtures") * (fixturesOn ? 1 : 0);
-  if (lightTick % 6 === 0 && on > 0) chooseFixtures();
-  fadeFixtures(dt, on);
   for (const m of glowMats) m.emissiveIntensity = on * 1.4;
-  for (const m of bounceMats) m.emissiveIntensity = on * 0.32;
+  for (const m of bounceMats) m.emissiveIntensity = on * 0.18;
+  if (pools) { pools.material.opacity = on * 0.45; pools.visible = on > 0.01; }
 }
 let fixturesOn = true;
 
@@ -390,6 +346,7 @@ new GLTFLoader().load(MODEL_URL, (gltf) => {
   // glTF nodes with several primitives load as a Group of meshes; userData comes from node extras
   gltf.scene.children.forEach((n) => { if (n.userData.layer) layerNodes.set(n.userData.layer, n); });
   FIXTURES = (gltf.scene.userData.lights || []).map((f) => ({ ...f, v: new THREE.Vector3(...f.p) }));
+  buildPools();
   // recessed cans glow warm when the fixture lights are on (housings sit above the drywall, out of sight)
   gltf.scene.traverse((o) => {
     if (!o.isMesh) return;
@@ -918,7 +875,7 @@ loadChanges();
 function placePanels() { document.documentElement.style.setProperty("--below-top", ($("top").getBoundingClientRect().bottom + 8) + "px"); }
 placePanels(); addEventListener("resize", placePanels);
 
-window.viewer = { captureView, goToView, LIGHT, lamp, SPOTS, POINTS, get FIXTURES() { return FIXTURES; }, set fixturesOn(v) { fixturesOn = v; }, get indoor() { return indoor; }, camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
+window.viewer = { captureView, goToView, LIGHT, lamp, get pools() { return pools; }, get FIXTURES() { return FIXTURES; }, set fixturesOn(v) { fixturesOn = v; }, get indoor() { return indoor; }, camera, setMode, setPlan, setMeasure, clearMeasures, pick, preset, setView, walk, keys, stepWalk, layerNodes, measures };   // for scripting / testing
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
