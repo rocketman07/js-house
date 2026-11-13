@@ -29,6 +29,10 @@
   #layers { top: var(--below-top, 66px); left: 12px; width: 300px; max-width: calc(100vw - 24px); bottom: 12px; display: flex; flex-direction: column; }
   #layers header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--line); }
   #layers header strong { font-size: 13px; }
+  #layers.min { bottom: auto; }                     /* minimized: just the header */
+  #layers.min #tree, #layers.min #allOn, #layers.min #allOff { display: none; }
+  #layers.min header { border-bottom: none; cursor: pointer; }
+  #minLayers { width: 28px; padding-left: 0; padding-right: 0; }
   #tree { overflow: auto; padding: 6px 4px 10px; flex: 1; }
   .row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; border-radius: 5px; }
   .row:hover { background: var(--hover); }
@@ -164,7 +168,8 @@
 
 <div id="layers" class="panel">
   <header><strong>Layers</strong>
-    <span><button id="allOn" title="Show all layers">All on</button> <button id="allOff" title="Hide all layers">All off</button></span>
+    <span><button id="allOn" title="Show all layers">All on</button> <button id="allOff" title="Hide all layers">All off</button>
+      <button id="minLayers" title="Minimize the layer list" aria-expanded="true">&minus;</button></span>
   </header>
   <div id="tree"></div>
 </div>
@@ -201,7 +206,7 @@ THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-const MODEL_URL = "js-house.glb?v=20261112185308";
+const MODEL_URL = "js-house.glb?v=20261112193940";
 // Google Apps Script web app that stores change requests in the project Google Sheet (see apps-script/).
 const CHANGES_URL = "https://script.google.com/macros/s/AKfycbwYkb4tfLQ7Nx2c4hgQWMugqOTOQu7FuHIsCstqafocOriQYjsip9f1ocaEHCz4c_xV9w/exec";
 const EYE = 5.5;               // eye height, ft
@@ -413,6 +418,10 @@ function syncChecks() {
     cb.checked = on === kids.length; cb.indeterminate = on > 0 && on < kids.length;
   }
 }
+// systems hidden inside walls, floors and the attic: shown in the Systems (MEP) and Framing views only.
+// Visible devices (lights, fans, switches, outlets, registers, meters, panel) stay on everywhere.
+const CONCEALED = ["MEP::Plumbing", "Gas Piping", "Supply Plenum", "Supply Branches", "HVAC::Return",
+  "Refrigerant Lines", "Exhaust (bath fans", "Electrical::Wiring", "Dedicated and Junction Boxes"];
 const HIDE = {
   framing: ["Metal Siding", "Plywood Sheathing", "Sheetrock", "Ceilings", "Metal Roofing", "Roof Sheathing", "Gable Walls",
             "Vented Soffit", "Roof Plywood", "T&G Soffit", "Subfloor", "Doors and Windows", "Decking", "Interiors", "Existing Grade", "Site Model::Water",
@@ -420,9 +429,9 @@ const HIDE = {
   mep: ["Metal Siding", "Plywood Sheathing", "Sheetrock", "Ceilings", "Metal Roofing", "Roof Sheathing", "Gable Walls", "Vented Soffit",
         "Roof Plywood", "T&G Soffit", "Subfloor", "Doors and Windows", "Decking", "Interiors", "Floor Finishes", "Existing Grade",
         "Site Model::Water", "Trees", "Neighboring Structures", "3D Model::Roof", "Porch Roof", "Insulation"],
-  interior: ["3D Model::Roof", "Ceilings", "Porch Roof", "Trees", "Existing Grade", "Site Model::Water"],
-  house: ["Site Model"],
-  all: ["Existing Grade", "Site Model::Water"],
+  interior: ["3D Model::Roof", "Ceilings", "Porch Roof", "Trees", "Existing Grade", "Site Model::Water", ...CONCEALED],
+  house: ["Site Model", ...CONCEALED],
+  all: ["Existing Grade", "Site Model::Water", ...CONCEALED],
 };
 function preset(name) {
   for (const [path, node] of layerNodes) node.visible = !HIDE[name].some((h) => path.includes(h));
@@ -432,6 +441,19 @@ document.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("cl
 document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => { if (mode !== "orbit") setMode("orbit"); setView(b.dataset.view); }));
 document.getElementById("allOn").onclick = () => { for (const n of layerNodes.values()) n.visible = true; syncChecks(); };
 document.getElementById("allOff").onclick = () => { for (const n of layerNodes.values()) n.visible = false; syncChecks(); };
+// minimize / restore the layer list (remembered per browser)
+function setLayersMin(on) {
+  const el = document.getElementById("layers"), b = document.getElementById("minLayers");
+  el.classList.toggle("min", on);
+  b.innerHTML = on ? "&plus;" : "&minus;"; b.title = on ? "Show the layer list" : "Minimize the layer list";
+  b.setAttribute("aria-expanded", String(!on));
+  try { localStorage.setItem("layersMin", on ? "1" : "0"); } catch (e) {}
+}
+document.getElementById("minLayers").onclick = (e) => { e.stopPropagation(); setLayersMin(!document.getElementById("layers").classList.contains("min")); };
+document.querySelector("#layers header").addEventListener("click", (e) => {
+  if (document.getElementById("layers").classList.contains("min") && e.target.tagName !== "BUTTON") setLayersMin(false);
+});
+try { if (localStorage.getItem("layersMin") === "1") setLayersMin(true); } catch (e) {}
 document.getElementById("toggleLayers").onclick = () => document.getElementById("layers").classList.toggle("hidden");
 
 // ---------------------------------------------------------------- double-click to centre (orbit)
